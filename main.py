@@ -1,224 +1,281 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 import os
-import warnings
-import seaborn as sns
-warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Indian startups",page_icon=":bar_chart:",layout="wide")
-st.title(" :bar_chart: Indian startups analysis")
-st.markdown("<style>div.block-container{padding-top:2rem;}</styles",unsafe_allow_html=True)
+st.set_page_config(layout='wide', page_title='StartUp Analysis')
 
-f1 = st.file_uploader(":file-folder: Upload as file",type=(["csv","txt","xlsx"]))
-if f1 is not None:
-    filename = f1.name
-    st.write(filename)
-    df = pd.read_csv(filename, encoding = "ISO-8859-1")
-else:
-    os.chdir("C:/Users/anhin/PycharmProjects/PythonProject2")
-    df = pd.read_csv("final_deta_csv.csv",encoding = "ISO-8859-1")
-    df.drop(columns=["Unnamed: 0"],inplace=True)
-    st.write(df.head())
+# Check if the file exists to avoid runtime errors
+file_path = 'startup_cleaned.csv'
 
-st.sidebar.header("startup funding analysis:")
-select = st.sidebar.selectbox("select ones",([" ","overall analysis","Startup","Investors", "Startup Locations"]))
-if select == "overall analysis":
-    st.title("Overall analysis")
-    total_amount = round(df['amount'].sum())
-    max_invest = df["amount"].max()
-    avg_invest = round(df["amount"].mean())
-    Total_startups = df["startup"].nunique()
+if not os.path.exists(file_path):
+    st.error(f"File '{file_path}' not found. Please make sure the file is available in the project directory.")
+    st.stop()
 
-    col1, col2,col3,col4 = st.columns(4)
+# Load the data
+try:
+    df = pd.read_csv(file_path)
+    st.success("Data loaded successfully!")
+except Exception as e:
+    st.error(f"Error loading CSV file: {e}")
+    st.stop()
+
+# Fix potential date parsing issues
+try:
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+except Exception as e:
+    st.error(f"Error parsing 'date' column: {e}")
+    df['date'] = pd.NaT
+
+# Additional preprocessing steps
+df['month'] = df['date'].dt.month
+df['year'] = df['date'].dt.year
+
+
+def load_overall_analysis():
+    st.title('Overall Analysis')
+
+    # Check if required columns exist
+    if 'amount' not in df.columns:
+        st.error("'amount' column not found in the dataset")
+        return
+
+    if 'startup' not in df.columns:
+        st.error("'startup' column not found in the dataset")
+        return
+
+    # Total investment amount
+    total = round(df['amount'].sum())
+
+    # Max amount infused in any single startup
+    max_funding = df.groupby('startup')['amount'].max().sort_values(ascending=False).head(1).values[0]
+
+    # Average ticket size
+    avg_funding = df.groupby('startup')['amount'].sum().mean()
+
+    # Total funded startups
+    num_startups = df['startup'].nunique()
+
+    col1, col2, col3, col4 = st.columns(4)
+
     with col1:
-        st.metric("total invest ",total_amount,"CR")
+        st.metric('Total', f"{total} Cr")
     with col2:
-        st.metric("Max Invest",max_invest,"CR")
+        st.metric('Max', f"{max_funding} Cr")
+    with col3:
+        st.metric('Avg', f"{round(avg_funding)} Cr")
+    with col4:
+        st.metric('Funded Startups', num_startups)
+
+    st.header('MoM graph')
+    selected_option = st.selectbox('Select Type', ['Total', 'Count'])
+
+    if selected_option == 'Total':
+        temp_df = df.groupby(['year', 'month'])['amount'].sum().reset_index()
+    else:
+        temp_df = df.groupby(['year', 'month'])['amount'].count().reset_index()
+
+    temp_df['x_axis'] = temp_df['month'].astype('str') + '-' + temp_df['year'].astype('str')
+
+    fig3, ax3 = plt.subplots(figsize=(12, 6))
+    ax3.plot(temp_df['x_axis'], temp_df['amount'])
+    ax3.set_xlabel('Month-Year')
+    ax3.set_ylabel('Amount in CR')
+    ax3.tick_params(axis='x', rotation=45)
+    plt.tight_layout()
+    st.pyplot(fig3)
+
+
+def load_startup_details(startup):
+    st.title(f'{startup} Analysis')
+
+    if 'startup' not in df.columns:
+        st.error("'startup' column not found in the dataset")
+        return
+
+    # Filter data for the selected startup
+    startup_df = df[df['startup'] == startup]
+
+    if startup_df.empty:
+        st.warning(f"No data found for startup: {startup}")
+        return
+
+    # Display basic info
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        total_funding = startup_df['amount'].sum()
+        st.metric('Total Funding', f"{total_funding} Cr")
+
+    with col2:
+        funding_rounds = len(startup_df)
+        st.metric('Funding Rounds', funding_rounds)
 
     with col3:
-        st.metric("Average Invest",avg_invest,"CR")
+        if 'vertical' in startup_df.columns:
+            vertical = startup_df['vertical'].iloc[0] if not startup_df['vertical'].isna().all() else "N/A"
+            st.metric('Vertical', vertical)
 
-    with col4:
-        st.metric("Total Startups",Total_startups)
-
-
-
-    st.title("MoM Graph")
-    option = st.selectbox("select ones",["","Month wise Investment","Month wise Startups"])
-    st.sidebar.selectbox("select startups",df["startup"].unique())
-    col1,col2 = st.columns(2)
-    # Ensure the date column is in datetime format
-    df['date'] = pd.to_datetime(df['date'])
-    df['month'] = df['date'].dt.to_period('M')
+    # Display funding history
+    st.subheader('Funding History')
+    display_columns = ['date', 'round', 'amount', 'investors']
+    available_columns = [col for col in display_columns if col in startup_df.columns]
+    st.dataframe(startup_df[available_columns].sort_values('date', ascending=False))
 
 
+def load_investor_details(investor):
+    st.title(investor)
 
-    if option == "Month wise Investment":
-            st.subheader("Month wise Investment")
+    if 'investors' not in df.columns:
+        st.error("'investors' column not found in the dataset")
+        return
 
-            temp_df = df.groupby(['year', 'month'])['amount'].sum().reset_index()
-            month = temp_df['month'].astype(str) + '-' + temp_df['year'].astype(str)
-            temp_df['X_axis'] = temp_df['month'].astype(str) + '-' + temp_df['year'].astype(str)
-            import plotly.express as px
-
-            fig = px.line(temp_df, x='X_axis', y='amount')
-            st.write(fig)
-    else:
-            st.subheader("Month wise Startups")
-            st_count = df.groupby(['year', 'month'])['startup'].count().reset_index()
-            df['month_year'] = df['month'].astype(str) + '-' + df['year'].astype(str)
-
-            fig = px.line(df, x='month_year', y='st_count')
-
-            fig.update_layout(title='Startup Count over Time',
-                              xaxis_title='Month-Year',
-                              yaxis_title='Startup Count')
-
-            st.write(fig)
-    col1,col2 = st.columns(2)
-    with col1:
-        vertical_counts = df.groupby('vertical')['startup'].count()
-
-        vertical_percentages = vertical_counts / vertical_counts.sum() * 100
-
-        filtered_verticals = vertical_percentages[vertical_percentages >= 0.1]
-
-        fig1 = px.pie(values=filtered_verticals.values,
-                      names=filtered_verticals.index,
-                      title='Distribution of Startups Across Verticals (>=0.1%)',
-                      hole=0.3)
-
-        fig1.update_traces(textposition='none')  # Hide percentage labels
-        fig1.update_layout(width=800, height=600)  # Increase size
-
-        st.write(fig1)
-    with col2:
-
-        round_counts = df.groupby('round')['startup'].count()
-        round_counts = round_counts[round_counts > 1]
-        st.markdown("<style>div.block-container{padding-top:4rem;}</styles", unsafe_allow_html=True)
-
-        fig2 = px.pie(values=round_counts.values,
-                     names=round_counts.index,
-                     title='Distribution of Funding Rounds (Excluding Single Contributions)')
-        fig2.update_traces(textposition='none')
-        st.write(fig2)
-
-
-
-
-
-
-
-
-
-
-elif select == "Investors":
-    st.subheader("Investors analysis")
-    selected_investor = st.sidebar.selectbox('Select Investor', sorted(set(df['investors'].str.split(',').sum())))
-    btn2 = st.sidebar.button('Find Investor Details')
-    st.header(selected_investor)
-
-    st.subheader("Most Recent investments")
-    recent_investments = df[df['investors'].str.contains(selected_investor, na=False)].sort_values(by='date',
-                                                                                             ascending=False).head(5)
-
-    # Display the results
-    st.write(recent_investments[['date', 'startup', 'vertical', 'subvertical', 'city', 'investors', 'round', 'amount']])
-
-    col1,col2 = st.columns(2)
-    with col1:
-        investor_df = df[df['investors'].str.contains(selected_investor, na=False)]
-
-
-        vertical_investment = investor_df.groupby('vertical')['amount'].sum()
-
-
-        fig3 = px.bar(x=vertical_investment.index, y=vertical_investment.values,
-                     labels={'x': 'Vertical', 'y': 'Total Investment Amount'},
-                     title=f'Investment by {selected_investor} in Different Verticals')
-        st.write(fig3)
-
-    with col2:
-        import plotly.express as px
-        investor_df = df[df['investors'].str.contains(selected_investor, na=False)]
-
-        if investor_df.empty:
-            print(f"No investments found for investor: {selected_investor}")
-        else:
-            startup_investment = investor_df.groupby('startup')['amount'].sum()
-
-            fig4 = px.pie(values=startup_investment.values,
-                         names=startup_investment.index,
-                         title=f'Investment Distribution of {selected_investor} across Startups')
-            st.write(fig4)
-
-    investor_df = df[df['investors'].str.contains(selected_investor, na=False)]
+    # Filter investments by the selected investor (case-insensitive)
+    investor_df = df[df['investors'].str.contains(investor, na=False, case=False)]
 
     if investor_df.empty:
-        print(f"No investments found for investor: {selected_investor}")
-    else:
-        yearly_investment = investor_df.groupby('year')['amount'].sum()
+        st.warning(f"No investments found for investor: {investor}")
+        return
 
-        fig5 = px.line(x=yearly_investment.index, y=yearly_investment.values,
-                      labels={'x': 'Year', 'y': 'Total Investment Amount'},
-                      title=f'Year-on-Year Investment by {selected_investor}')
-        st.write(fig5)
+    # Display summary metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        total_investment = investor_df['amount'].sum()
+        st.metric('Total Investment', f"{total_investment} Cr")
+    with col2:
+        num_investments = len(investor_df)
+        st.metric('Number of Investments', num_investments)
+    with col3:
+        num_startups = investor_df['startup'].nunique()
+        st.metric('Unique Startups', num_startups)
 
+    # Load the recent 5 investments of the investor
+    display_columns = ['date', 'startup', 'vertical', 'city', 'round', 'amount']
+    available_columns = [col for col in display_columns if col in investor_df.columns]
+    last5_df = investor_df[available_columns].head()
 
+    st.subheader('Most Recent Investments')
+    st.dataframe(last5_df)
 
-elif select == "Startup":
-    st.subheader("Startups Analysis")
-    selected_startup = st.sidebar.selectbox('Select startup', sorted(set(df['startup'].str.split(',').sum())))
-    btn2 = st.sidebar.button('Find Startup Details')
-    st.subheader(selected_startup)
-    col1,col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
+    with col1:
+        # Biggest investments
+        big_series = (
+            investor_df.groupby('startup')['amount']
+            .sum()
+            .sort_values(ascending=False)
+            .head()
+        )
 
-    if btn2 == True:
+        if not big_series.empty and len(big_series) > 0:
+            st.subheader('Biggest Investments')
+            try:
+                fig, ax = plt.subplots(figsize=(10, 6))
+                bars = ax.bar(big_series.index, big_series.values)
+                ax.set_xlabel('StartUps')
+                ax.set_ylabel('Funding Amount (Cr)')
+                ax.tick_params(axis='x', rotation=45)
 
-        with col1:
-            startup_df = df[df['startup'] == selected_startup]
+                # Add value labels on bars
+                for bar, value in zip(bars, big_series.values):
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width() / 2., height,
+                            f'{value:.1f}', ha='center', va='bottom')
 
-            if startup_df.empty:
-                print(f"No data found for startup: {selected_startup}")
-            else:
-                vertical_counts = startup_df.groupby('vertical')['startup'].count()
-                fig6 = px.pie(values=vertical_counts.values,
-                             names=vertical_counts.index,
-                             title=f'Distribution of Investments for {selected_startup} across Verticals')
-                st.write(fig6)
-
-        with col2:
-            startup_df = df[df['startup'] == selected_startup]
-
-            if startup_df.empty:
-                print(f"No data found for startup: {selected_startup}")
-            else:
-                vertical_counts = startup_df.groupby('subvertical')['startup'].count()
-                fig7 = px.pie(values=vertical_counts.values,
-                              names=vertical_counts.index,
-                              title=f'Distribution of Investments for {selected_startup} across Verticals')
-                st.write(fig7)
-
-        startup_df = df[df['startup'] ==selected_startup ]
-        if startup_df.empty:
-            print(f"No data found for startup: {selected_startup}")
+                st.pyplot(fig)
+                plt.close(fig)
+            except Exception as e:
+                st.error(f"Error creating bar chart: {str(e)}")
+                plt.close('all')
         else:
-            startup_df['month_year'] = startup_df['month'].astype(str) + '-' + startup_df['year'].astype(str)
-            monthly_investment = startup_df.groupby('month_year')['amount'].sum().reset_index()
+            st.warning("No investment data available for bar chart")
 
-            fig8 = px.line(monthly_investment, x='month_year', y='amount',
-                          labels={'month_year': 'Month-Year', 'amount': 'Total Investment Amount'},
-                          title=f'Month-on-Month Investment for {selected_startup}')
-            st.write(fig8)
+    with col2:
+        if 'vertical' in investor_df.columns:
+            vertical_series = investor_df.groupby('vertical')['amount'].sum()
+            # Remove any NaN or zero values
+            vertical_series = vertical_series[vertical_series > 0]
+
+            if not vertical_series.empty and len(vertical_series) > 0:
+                st.subheader('Sectors Invested In')
+                try:
+                    fig1, ax1 = plt.subplots(figsize=(8, 8))
+                    # Only create pie chart if we have valid data
+                    if vertical_series.sum() > 0:
+                        ax1.pie(vertical_series.values, labels=vertical_series.index, autopct="%0.01f%%")
+                        st.pyplot(fig1)
+                    else:
+                        st.warning("No valid sector data for pie chart")
+                    plt.close(fig1)
+                except Exception as e:
+                    st.error(f"Error creating pie chart: {str(e)}")
+                    plt.close('all')
+            else:
+                st.warning("No sector data available for pie chart")
+
+    # YoY Investment
+    year_series = investor_df.groupby('year')['amount'].sum()
+    year_series = year_series[year_series > 0]  # Remove zero values
+
+    if not year_series.empty and len(year_series) > 0:
+        st.subheader('YoY Investment')
+        try:
+            fig2, ax2 = plt.subplots(figsize=(10, 6))
+            ax2.plot(year_series.index, year_series.values, marker='o', linewidth=2, markersize=8)
+            ax2.set_xlabel('Year')
+            ax2.set_ylabel('Investment Amount (Cr)')
+            ax2.grid(True, alpha=0.3)
+
+            # Add value labels on points
+            for x, y in zip(year_series.index, year_series.values):
+                ax2.annotate(f'{y:.1f}', (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
+
+            st.pyplot(fig2)
+            plt.close(fig2)
+        except Exception as e:
+            st.error(f"Error creating line chart: {str(e)}")
+            plt.close('all')
+    else:
+        st.warning("No year-over-year data available for line chart")
 
 
+# Sidebar
+st.sidebar.title('Startup Funding Analysis')
+option = st.sidebar.selectbox('Select One', ['Overall Analysis', 'StartUp', 'Investor'])
 
+if option == 'Overall Analysis':
+    load_overall_analysis()
 
+elif option == 'StartUp':
+    if 'startup' in df.columns:
+        startup_list = sorted(df['startup'].unique().tolist())
+        selected_startup = st.sidebar.selectbox('Select StartUp', startup_list)
+        btn1 = st.sidebar.button('Find StartUp Details')
+        if btn1:
+            load_startup_details(selected_startup)
+    else:
+        st.error("'startup' column not found in the dataset")
 
+else:  # Investor option
+    if 'investors' in df.columns:
+        # Extract unique investors from comma-separated values
+        all_investors = []
+        for investors_str in df['investors'].dropna():
+            if isinstance(investors_str, str):
+                # Split by comma and clean up whitespace
+                investors = [inv.strip() for inv in investors_str.split(',')]
+                all_investors.extend(investors)
 
+        # Remove empty strings and get unique investors
+        investor_list = sorted(set([inv for inv in all_investors if inv]))
 
+        if investor_list:
+            selected_investor = st.sidebar.selectbox('Select Investor', investor_list)
+            btn2 = st.sidebar.button('Find Investor Details')
+            if btn2:
+                load_investor_details(selected_investor)
+        else:
+            st.error("No investors found in the dataset")
+    else:
+        st.error("'investors' column not found in the dataset")
