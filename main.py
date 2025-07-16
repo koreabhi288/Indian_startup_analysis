@@ -19,7 +19,6 @@ try:
 except Exception as e:
     st.error(f"Error loading CSV file: {e}")
     st.stop()
-
 # Fix potential date parsing issues
 try:
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
